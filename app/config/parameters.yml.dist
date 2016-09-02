@@ -1,0 +1,8 @@
+parameters:
+    filename: VPOuest_IDD162_%s_%s
+    ftpHost: ftp.eurotaxglass.fr
+    ftpUsername: vpouest
+    ftpPass: vpouest
+    mysqlDatabase: eurotax-import
+    mysqlUsername: root
+    mysqlPass: root
