@@ -37,8 +37,8 @@ class EurotaxImporterCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
+        $this->filename = sprintf($input->getOption('filename'), date('Ym'), date('Ymd')) . '.zip';
         $this->output = $output;
-        $this->filename = $input->getOption('filename');
         $ftpHost = $input->getOption('ftp-host');
         $ftpUserName = $input->getOption('ftp-username');
         $ftpUserPass = $input->getOption('ftp-pass');
@@ -67,9 +67,9 @@ class EurotaxImporterCommand extends Command
             $this->output->writeln("FTP connextion initialized");
         }
 
-        $sourceFile = $this->getFilePath() . $this->getFileName();
+        $sourceFile = $this->getFilePath() . $this->filename;
 
-        $destinationFile = $this->getFilePath(true) . $this->getFileName();
+        $destinationFile = $this->getFilePath(true) . $this->filename;
         $this->output->writeln(sprintf("Downloading %s", $destinationFile));
         $upload = ftp_get($conn_id, $destinationFile, $sourceFile, FTP_BINARY);
 
@@ -80,14 +80,6 @@ class EurotaxImporterCommand extends Command
 
         ftp_close($conn_id);
         $this->output->writeln("Download complete");
-    }
-
-    private function getFileName()
-    {
-        $name = sprintf($this->filename, date('Ym'), date('Ymd'));
-        $name .= '.zip';
-
-        return $name;
     }
 
     private function getFilePath($local = false)
@@ -104,7 +96,7 @@ class EurotaxImporterCommand extends Command
     {
         $this->output->writeln('Extract archive');
         $zip = new ZipArchive;
-        if ($zip->open($this->getFilePath(true) . $this->getFileName()) === TRUE) {
+        if ($zip->open($this->getFilePath(true) . $this->filename) === TRUE) {
             $dir = $this->getFilePath(true) . date('Ym') . '/';
             if (is_dir($dir)) {
                 throw new \Exception(sprintf('Database for %s seems to already be imported', date('Ym')));
