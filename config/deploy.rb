@@ -6,11 +6,6 @@ set :repo_url, 'git@github.com:vpauto/eurotax-importer.git'
 
 set :user, "appventus"
 
-server 'vpauto.fr',
-    user: fetch(:user),
-    port: 22,
-    roles: %w{web app db}
-
 # Default value for :pty is false
 set :pty, true
 
