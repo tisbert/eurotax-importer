@@ -113,6 +113,9 @@ class EurotaxImporterCommand extends Command
 
     private function importSql($mysqlDatabaseName, $mysqlUserName, $mysqlPassword)
     {
+        $tmpDatabase = $mysqlDatabaseName . '_tmp';
+        exec("mysql -u ".$mysqlUserName." --password='".$mysqlPassword."' -e 'DROP DATABASE IF EXISTS `".$tmpDatabase."`; CREATE DATABASE ".$tmpDatabase."'");
+        exec("mysqldump -d -u ".$mysqlUserName." --password='".$mysqlPassword."' ".$mysqlDatabaseName." | mysql -u ".$mysqlUserName." --password='".$mysqlPassword."' ".$tmpDatabase);
         $mysqlImportDir = new DirectoryIterator($this->getFilepath(true) . date('Ym'));
         foreach ($mysqlImportDir as $fileInfo) {
             if ($fileInfo->isDot() || $fileInfo->getFilename() === '.DS_Store') {
@@ -124,15 +127,15 @@ class EurotaxImporterCommand extends Command
             $tableExist = exec(sprintf('mysql -N -s -u%s -p%s -e "select count(*) from information_schema.tables where table_schema=\'%s\' and table_name=\'%s\';"',
                 $mysqlUserName,
                 $mysqlPassword,
-                $mysqlDatabaseName,
+                $tmpDatabase,
                 $tableName
             ));
             if ($tableExist) {
                 $command = sprintf('mysql --enable-local-infile -u%s -p%s %s -e "USE %s; TRUNCATE TABLE %s; LOAD DATA LOCAL INFILE \'%s\' INTO TABLE %s CHARACTER SET \'latin1\' FIELDS TERMINATED BY \'\t\' LINES TERMINATED BY \'\n\';"',
                     $mysqlUserName,
                     $mysqlPassword,
-                    $mysqlDatabaseName,
-                    $mysqlDatabaseName,
+                    $tmpDatabase,
+                    $tmpDatabase,
                     $tableName,
                     $file,
                     $tableName
@@ -149,6 +152,12 @@ class EurotaxImporterCommand extends Command
                 $this->output->writeln(sprintf('The table %s does not exists', $tableName));
             }
         }
+
+        $this->output->writeln('Database was successfully imported');
+
+        //send mail
+        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='vpauto@appventus.com; ehamelin@vpauto.fr' -F subject='EUROTAX IMPORT OK' -F text='need manual database rename'");
+
 
     }
 }
