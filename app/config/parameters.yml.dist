@@ -1,8 +1,8 @@
 parameters:
-    filename: VPOuest_IDD162_%s_%s
-    ftpHost: ftp.eurotaxglass.fr
-    ftpUsername: vpouest
-    ftpPass: vpouest
+    filenamePattern: VPOuest_IDD162_%s_%s
+    ftpHost: sftp.eurotaxglass.fr
+    sshUser: vpouest
+    sshKey: /usr/appventus/.ssh/id_rsa
     mysqlDatabase: eurotax-import
     mysqlUsername: root
     mysqlPass: root

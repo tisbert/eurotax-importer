@@ -3,9 +3,9 @@
 require __DIR__.'/vendor/autoload.php';
 
 use AppBundle\Command\EurotaxImporterCommand;
-use Symfony\Component\Console\Application;
+use AppBundle\Application;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Input\InputDefinition;
 
 $application = new Application();
-$application->add($command = new EurotaxImporterCommand());
-$application->setDefaultCommand($command->getName());
 $application->run();

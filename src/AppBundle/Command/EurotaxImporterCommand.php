@@ -12,7 +12,6 @@ use ZipArchive;
 class EurotaxImporterCommand extends Command
 {
 
-    protected $filename = null;
     /**
      * @var OutputInterface
      */
@@ -26,39 +25,55 @@ class EurotaxImporterCommand extends Command
         $this
             ->setName('eurotax:import')
             ->addOption('ftp-host', null, InputOption::VALUE_OPTIONAL, 'ftp host', $config['parameters']['ftpHost'])
-            ->addOption('ftp-username', null, InputOption::VALUE_OPTIONAL, 'ftp username', $config['parameters']['ftpUsername'])
-            ->addOption('ftp-pass', null, InputOption::VALUE_OPTIONAL, 'ftp pass', $config['parameters']['ftpPass'])
             ->addOption('mysql-database', null, InputOption::VALUE_OPTIONAL, 'mysql database', $config['parameters']['mysqlDatabase'])
             ->addOption('mysql-username', null, InputOption::VALUE_OPTIONAL, 'mysql username', $config['parameters']['mysqlUsername'])
             ->addOption('mysql-pass', null, InputOption::VALUE_OPTIONAL, 'mysql pass', $config['parameters']['mysqlPass'])
-            ->addOption('filename', null, InputOption::VALUE_REQUIRED, 'filename', $config['parameters']['filename'])
+            ->addOption('ssh-user', null, InputOption::VALUE_OPTIONAL, 'ssh user', $config['parameters']['sshUser'])
+            ->addOption('ssh-key', null, InputOption::VALUE_OPTIONAL, 'path to the ssh key', $config['parameters']['sshKey'])
+            ->addOption('filenamePattern', null, InputOption::VALUE_REQUIRED, 'filename', $config['parameters']['filenamePattern'])
+            ->addOption('filename', null, InputOption::VALUE_OPTIONAL, 'filename', null)
         ;
     }
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        $this->filename = sprintf($input->getOption('filename'), date('Ym'), date('Ymd')) . '.zip';
+        if ($input->getOption('filename')) {
+            $filename = $input->getOption('filename');
+        } else {
+            $filename = sprintf($input->getOption('filenamePattern'), date('Ym'), date('Ymd')) . '.zip';
+        }
         $this->output = $output;
         $ftpHost = $input->getOption('ftp-host');
-        $ftpUserName = $input->getOption('ftp-username');
-        $ftpUserPass = $input->getOption('ftp-pass');
         $mysqlDatabaseName = $input->getOption('mysql-database');
         $mysqlUserName = $input->getOption('mysql-username');
         $mysqlPassword = $input->getOption('mysql-pass');
-        // fetch the ftp server
-        $this->fetchFileFromFtp($ftpHost, $ftpUserName, $ftpUserPass);
-        // unzip the result
-        $this->extractArchive();
-        // import it in database
-        $this->importSql($mysqlDatabaseName, $mysqlUserName, $mysqlPassword);
-
+        $sshUser = $input->getOption('ssh-user');
+        $sshKey = $input->getOption('ssh-key');
+        $this->fetchFileFromFtp($ftpHost, $sshUser, $sshKey, $filename);
+        $this->extractArchive($filename);
+        $this->importSql($mysqlDatabaseName, $mysqlUserName, $mysqlPassword, $filename);
     }
 
-    private function fetchFileFromFtp($ftpServer, $ftpUserName, $ftpUserPass)
+    /**
+     * fetch the ftp server
+     *
+     * @param $ftpServer
+     * @param $sshUser
+     * @param $sshKey
+     *
+     * @throws \Exception
+     */
+    private function fetchFileFromFtp($ftpServer, $sshUser, $sshKey, $filename)
     {
-        $conn_id = ftp_connect($ftpServer);
+        $conn_id = ssh2_connect($ftpServer);
 
-        $login_result = ftp_login($conn_id, $ftpUserName, $ftpUserPass);
+        // login on the sftp server
+        $login_result = ssh2_auth_pubkey_file(
+            $conn_id,
+            $sshUser,
+            sprintf('%s.pub', $sshKey),
+            $sshKey
+        );
 
         if ((!$conn_id) || (!$login_result)) {
             $this->output->writeln($message = "FTP connection failed");
@@ -67,70 +82,90 @@ class EurotaxImporterCommand extends Command
             $this->output->writeln("FTP connextion initialized");
         }
 
-        $sourceFile = $this->getFilePath() . $this->filename;
+        $sourceFile = $this->getFilePath() . $filename;
+        $destinationFile = $this->getFilePath(true) . $filename;
 
-        $destinationFile = $this->getFilePath(true) . $this->filename;
-        $this->output->writeln(sprintf("Downloading %s", $destinationFile));
-        $upload = ftp_get($conn_id, $destinationFile, $sourceFile, FTP_BINARY);
+        if (file_exists($destinationFile)) {
+            $this->output->writeln("Archive already downloaded");
+            return;
+        }
+        // open remote import file
+        $sftp = ssh2_sftp($conn_id);
+        $importFile = fopen("ssh2.sftp://$sftp/.$sourceFile", 'r');
 
-        if (!$upload) {
+        //create tmp dir if not exists
+        if(!@mkdir(sys_get_temp_dir().'/eurotax') && !is_dir(sys_get_temp_dir().'/eurotax')) {
+            throw new \Exception(sprintf('Could not create the %s directory', sys_get_temp_dir().'/eurotax'));
+        }
+        //create local import file
+        $destinationFileStream = fopen($destinationFile, "w");
+        $this->output->writeln(sprintf("Downloading %s into %s", $sourceFile,$destinationFile));
+        // download remote import file
+        if (!file_put_contents($destinationFile, $importFile)) {
             $this->output->writeln($message = sprintf("The file '%s' was not found in the FTP", $sourceFile));
             exit;
         }
 
-        ftp_close($conn_id);
+        fclose($importFile);
+        fclose($destinationFileStream);
         $this->output->writeln("Download complete");
     }
 
-    private function getFilePath($local = false)
-    {
-        if ($local) {
-            $path = '/tmp/eurotax/';
-        } else {
-            $path = '/in/';
-        }
-        return $path;
-    }
 
-    private function extractArchive()
+    /**
+     * unzip the result
+     *
+     * @throws \Exception
+     */
+    private function extractArchive($filename)
     {
         $this->output->writeln('Extract archive');
         $zip = new ZipArchive;
-        if ($zip->open($this->getFilePath(true) . $this->filename) === TRUE) {
-            $dir = $this->getFilePath(true) . date('Ym') . '/';
-            if (is_dir($dir)) {
-                throw new \Exception(sprintf('Database for %s seems to already be imported', date('Ym')));
-            } else {
-                $zip->extractTo($dir);
-                $zip->close();
-                $this->output->writeln('Extract completed');
-            }
+        if ($zip->open($this->getFilePath(true) . $filename) === TRUE) {
+            $dir = $this->getFilePath(true) . str_replace('.zip', '', $filename) . '/';
+            $zip->extractTo($dir);
+            $zip->close();
+            $this->output->writeln('Extract completed');
+
         } else {
-            $this->output->writeln($message = 'Extract failed');
+            $this->output->writeln($message = 'Extract failed: unable to open '.$this->getFilePath(true) . $filename);
             throw new \Exception($message);
         }
     }
 
-    private function importSql($mysqlDatabaseName, $mysqlUserName, $mysqlPassword)
+    /**
+     * import extracted data in the database
+     *
+     * @param $mysqlDatabaseName
+     * @param $mysqlUserName
+     * @param $mysqlPassword
+     *
+     * @throws \Exception
+     */
+    private function importSql($mysqlDatabaseName, $mysqlUserName, $mysqlPassword, $filename)
     {
         $tmpDatabase = $mysqlDatabaseName . '_tmp';
+        // create temporary database
         exec("mysql -u ".$mysqlUserName." --password='".$mysqlPassword."' -e 'DROP DATABASE IF EXISTS `".$tmpDatabase."`; CREATE DATABASE ".$tmpDatabase."'");
+        // copy the database structure into the tmp one
         exec("mysqldump -d -u ".$mysqlUserName." --password='".$mysqlPassword."' ".$mysqlDatabaseName." | mysql -u ".$mysqlUserName." --password='".$mysqlPassword."' ".$tmpDatabase);
-        $mysqlImportDir = new DirectoryIterator($this->getFilepath(true) . date('Ym'));
+        $mysqlImportDir = new DirectoryIterator($this->getFilepath(true) . str_replace('.zip', '', $filename));
+        //iterate over each imported data files
         foreach ($mysqlImportDir as $fileInfo) {
-            if ($fileInfo->isDot() || $fileInfo->getFilename() === '.DS_Store') {
+            if ($fileInfo->isDot() || strpos($fileInfo->getFilename(), '.') === 0) {
                 continue;
             }
             $tableName = $fileInfo->getBaseName('.txt');
             $file = $fileInfo->getPathname();
 
-            $tableExist = exec(sprintf('mysql -N -s -u%s -p%s -e "select count(*) from information_schema.tables where table_schema=\'%s\' and table_name=\'%s\';"',
+            // If the table exists
+            if (exec(sprintf('mysql -N -s -u%s -p%s -e "select count(*) from information_schema.tables where table_schema=\'%s\' and table_name=\'%s\';"',
                 $mysqlUserName,
                 $mysqlPassword,
                 $tmpDatabase,
                 $tableName
-            ));
-            if ($tableExist) {
+            ))) {
+                // load data into the table
                 $command = sprintf('mysql --enable-local-infile -u%s -p%s %s -e "USE %s; TRUNCATE TABLE %s; LOAD DATA LOCAL INFILE \'%s\' INTO TABLE %s CHARACTER SET \'latin1\' FIELDS TERMINATED BY \'\t\' LINES TERMINATED BY \'\n\';"',
                     $mysqlUserName,
                     $mysqlPassword,
@@ -156,8 +191,23 @@ class EurotaxImporterCommand extends Command
         $this->output->writeln('Database was successfully imported');
 
         //send mail
-        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='vpauto@appventus.com; ehamelin@vpauto.fr' -F subject='EUROTAX IMPORT OK' -F text='need manual database rename'");
+        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='paul@appventus.com' -F subject='EUROTAX IMPORT OK' -F text='need manual database rename'");
+    }
 
-
+    /**
+     * Create remote or local file path
+     *
+     * @param bool $local
+     *
+     * @return string
+     */
+    private function getFilePath($local = false)
+    {
+        if ($local) {
+            $path = sys_get_temp_dir().'/eurotax/';
+        } else {
+            $path = '/in/';
+        }
+        return $path;
     }
 }
