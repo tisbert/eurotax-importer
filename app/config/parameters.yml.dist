@@ -2,7 +2,8 @@ parameters:
     filenamePattern: VPOuest_IDD162_%s_%s
     ftpHost: sftp.eurotaxglass.fr
     sshUser: vpouest
-    sshKey: /usr/appventus/.ssh/id_rsa
+    sshKey: /home/appventus/.ssh/id_rsa
     mysqlDatabase: eurotax-import
     mysqlUsername: root
     mysqlPass: root
+    warnEmails: "vpauto@appventus.com; ehamelin@vpauto.fr"

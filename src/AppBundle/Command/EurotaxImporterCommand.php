@@ -32,6 +32,7 @@ class EurotaxImporterCommand extends Command
             ->addOption('ssh-key', null, InputOption::VALUE_OPTIONAL, 'path to the ssh key', $config['parameters']['sshKey'])
             ->addOption('filenamePattern', null, InputOption::VALUE_REQUIRED, 'filename', $config['parameters']['filenamePattern'])
             ->addOption('filename', null, InputOption::VALUE_OPTIONAL, 'filename', null)
+            ->addOption('warn-emails', null, InputOption::VALUE_OPTIONAL, 'emails of peaple to warn (separated by ";")', $config['parameters']['warnEmails'])
         ;
     }
 
@@ -43,15 +44,20 @@ class EurotaxImporterCommand extends Command
             $filename = sprintf($input->getOption('filenamePattern'), date('Ym'), date('Ymd')) . '.zip';
         }
         $this->output = $output;
-        $ftpHost = $input->getOption('ftp-host');
-        $mysqlDatabaseName = $input->getOption('mysql-database');
-        $mysqlUserName = $input->getOption('mysql-username');
-        $mysqlPassword = $input->getOption('mysql-pass');
-        $sshUser = $input->getOption('ssh-user');
-        $sshKey = $input->getOption('ssh-key');
-        $this->fetchFileFromFtp($ftpHost, $sshUser, $sshKey, $filename);
+        $this->fetchFileFromFtp(
+            $input->getOption('ftp-host'),
+            $input->getOption('ssh-user'),
+            $input->getOption('ssh-key'),
+            $filename
+        );
         $this->extractArchive($filename);
-        $this->importSql($mysqlDatabaseName, $mysqlUserName, $mysqlPassword, $filename);
+        $this->importSql(
+            $input->getOption('mysql-database'),
+            $input->getOption('mysql-username'),
+            $input->getOption('mysql-pass'),
+            $filename
+        );
+        $this->warn($input->getOption('warn-emails'));
     }
 
     /**
@@ -189,9 +195,6 @@ class EurotaxImporterCommand extends Command
         }
 
         $this->output->writeln('Database was successfully imported');
-
-        //send mail
-        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='paul@appventus.com' -F subject='EUROTAX IMPORT OK' -F text='need manual database rename'");
     }
 
     /**
@@ -209,5 +212,15 @@ class EurotaxImporterCommand extends Command
             $path = '/in/';
         }
         return $path;
+    }
+
+    /**
+     * Warn by email that import finished
+     *
+     * @param $emails
+     */
+    private function warn($emails)
+    {
+        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='$emails' -F subject='EUROTAX IMPORT OK' -F text='need manual database rename'");
     }
 }
