@@ -20,7 +20,7 @@ class EurotaxImporterCommand extends Command
 
     protected function configure()
     {
-        $config = Yaml::parse(file_get_contents(dirname(__FILE__) . '../../../app/config/parameters.yml'));
+        $config = Yaml::parse(file_get_contents(dirname(__FILE__) . '/../../../app/config/parameters.yml'));
 
         $this
             ->setName('eurotax:import')
