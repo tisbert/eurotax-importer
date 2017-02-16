@@ -12,6 +12,9 @@ use ZipArchive;
 class EurotaxImporterCommand extends Command
 {
 
+    const ERROR = 'error';
+    const SUCCESS = 'success';
+
     /**
      * @var OutputInterface
      */
@@ -38,26 +41,32 @@ class EurotaxImporterCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output)
     {
-        if ($input->getOption('filename')) {
-            $filename = $input->getOption('filename');
-        } else {
-            $filename = sprintf($input->getOption('filenamePattern'), date('Ym'), date('Ymd')) . '.zip';
+        try {
+
+            if ($input->getOption('filename')) {
+                $filename = $input->getOption('filename');
+            } else {
+                $filename = sprintf($input->getOption('filenamePattern'), date('Ym'), date('Ymd')) . '.zip';
+            }
+            $this->output = $output;
+            $this->fetchFileFromFtp(
+                $input->getOption('ftp-host'),
+                $input->getOption('ssh-user'),
+                $input->getOption('ssh-key'),
+                $filename
+            );
+            $this->extractArchive($filename);
+            $this->importSql(
+                $input->getOption('mysql-database'),
+                $input->getOption('mysql-username'),
+                $input->getOption('mysql-pass'),
+                $filename
+            );
+        } catch (\Exception $e) {
+            $this->warn($input->getOption('warn-emails'), self::ERROR);
+            throw $e;
         }
-        $this->output = $output;
-        $this->fetchFileFromFtp(
-            $input->getOption('ftp-host'),
-            $input->getOption('ssh-user'),
-            $input->getOption('ssh-key'),
-            $filename
-        );
-        $this->extractArchive($filename);
-        $this->importSql(
-            $input->getOption('mysql-database'),
-            $input->getOption('mysql-username'),
-            $input->getOption('mysql-pass'),
-            $filename
-        );
-        $this->warn($input->getOption('warn-emails'));
+        $this->warn($input->getOption('warn-emails'), self::SUCCESS);
     }
 
     /**
@@ -219,8 +228,19 @@ class EurotaxImporterCommand extends Command
      *
      * @param $emails
      */
-    private function warn($emails)
+    private function warn($emails, $type)
     {
-        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='$emails' -F subject='EUROTAX IMPORT OK' -F text='need manual database rename'");
+        switch ($type) {
+            case self::ERROR:
+                $subject = 'EUROTAX IMPORT OK';
+                $text = 'need manual database rename';
+                break;
+            case self::SUCCESS:
+                $subject = 'EUROTAX IMPORT FAILED';
+                $text = 'An error occured in eurotax import';
+                break;
+        }
+        exec("curl -s --user 'api:key-6iurj37nbbqdl8wibdrqthuhp29941p4' https://api.mailgun.net/v3/vpauto.fr/messages -F from='Serveur VPAUTO <postmaster@vpauto.fr>' -F to='$emails' -F subject='$subject' -F text='$text'");
+
     }
 }
