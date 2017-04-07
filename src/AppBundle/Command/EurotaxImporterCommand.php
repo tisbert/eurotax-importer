@@ -108,16 +108,22 @@ class EurotaxImporterCommand extends Command
         $sftp = ssh2_sftp($conn_id);
         $importFile = fopen("ssh2.sftp://$sftp/.$sourceFile", 'r');
 
+        if (!file_exists("ssh2.sftp://$sftp/.$sourceFile")) {
+            $this->output->writeln($message = sprintf("The file '%s' was not found in the FTP", $sourceFile));
+            exit;
+        }
+
         //create tmp dir if not exists
         if(!@mkdir(sys_get_temp_dir().'/eurotax') && !is_dir(sys_get_temp_dir().'/eurotax')) {
             throw new \Exception(sprintf('Could not create the %s directory', sys_get_temp_dir().'/eurotax'));
         }
+
         //create local import file
         $destinationFileStream = fopen($destinationFile, "w");
         $this->output->writeln(sprintf("Downloading %s into %s", $sourceFile,$destinationFile));
         // download remote import file
         if (!file_put_contents($destinationFile, $importFile)) {
-            $this->output->writeln($message = sprintf("The file '%s' was not found in the FTP", $sourceFile));
+            $this->output->writeln($message = sprintf("Failure writing remote '%s' file in '%s'", $importFile, $destinationFile));
             exit;
         }
 
